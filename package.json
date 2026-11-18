@@ -15,7 +15,7 @@
     "db": "node scripts/dev-db.js",
     "dev": "concurrently -n db,api,web -c gray,green,cyan \"node scripts/dev-db.js\" \"npm run dev -w server\" \"npm run dev -w client\"",
     "build": "npm run build -w client",
-    "vercel-build": "prisma generate --schema server/prisma/schema.prisma && prisma db push --skip-generate --schema server/prisma/schema.prisma && node server/prisma/init-prod.js && npm run build -w client",
+    "vercel-build": "node scripts/vercel-preflight.js && prisma generate --schema server/prisma/schema.prisma && prisma db push --skip-generate --schema server/prisma/schema.prisma && node server/prisma/init-prod.js && npm run build -w client",
     "start": "npm run start -w server"
   },
   "devDependencies": {
