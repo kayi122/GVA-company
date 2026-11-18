@@ -1,0 +1,11 @@
+node_modules/
+.env
+*.db
+*.db-journal
+dist/
+uploads/
+backups/
+*.db-wal
+*.db-shm
+.claude/
+.env.production

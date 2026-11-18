@@ -1,0 +1,289 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Roles: ADMIN, AGENT, SUPERVISOR, FINANCE, OPERATIONS, TECHNICIAN
+model User {
+  id           Int         @id @default(autoincrement())
+  username     String      @unique
+  email        String      @unique
+  fullName     String
+  phone        String?
+  role         String
+  passwordHash String
+  isActive     Boolean     @default(true)
+  supervisorId Int?
+  supervisor   User?       @relation("Team", fields: [supervisorId], references: [id])
+  agents       User[]      @relation("Team")
+  lastLoginAt  DateTime?
+  sessionVersion Int        @default(0) // bumped to sign the user out everywhere
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  loginCodes   LoginCode[]
+  auditLogs    AuditLog[]
+  customers     Customer[]     @relation("AgentCustomers")
+  visits        Visit[]        @relation("AgentVisits")
+  appointments  Appointment[]  @relation("AgentAppointments")
+  notifications Notification[]
+  targets       Target[]       @relation("UserTargets")
+  payments      Payment[]      @relation("AgentPayments")
+  supConfirmed  Payment[]      @relation("SupervisorConfirmations")
+  finConfirmed  Payment[]      @relation("FinanceConfirmations")
+  jobs          Installation[] @relation("TechnicianJobs")
+  stockMoves    StockMovement[] @relation("StockMovers")
+}
+
+// A person an agent has approached in the field.
+model Customer {
+  id              Int           @id @default(autoincrement())
+  fullName        String
+  phone           String        @unique // normalised 07XXXXXXXX
+  altPhone        String?
+  customerType    String        @default("HOME") // HOME | BUSINESS
+  district        String
+  sector          String?
+  landmark        String?
+  latitude        Float?
+  longitude       Float?
+  currentIsp      String // MTN | AIRTEL | LIQUID | OTHER | NONE
+  currentIspOther String?
+  monthlySpend    Int? // RWF per month on current internet
+  satisfaction    String? // HAPPY | OK | UNHAPPY with current internet
+  status          String // COLD | WARM | HOT
+  stage           String        @default("LEAD") // LEAD | PAYMENT_PENDING | AWAITING_INSTALL | SCHEDULED | INSTALLED
+  notes           String?
+  agentId         Int
+  agent           User          @relation("AgentCustomers", fields: [agentId], references: [id])
+  lastVisitAt     DateTime      @default(now())
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  visits          Visit[]
+  appointments    Appointment[]
+  payments        Payment[]
+  installations   Installation[]
+
+  @@index([agentId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// Each conversation with a customer (first contact and every return visit).
+model Visit {
+  id         Int      @id @default(autoincrement())
+  customerId Int
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  agentId    Int
+  agent      User     @relation("AgentVisits", fields: [agentId], references: [id])
+  status     String // customer status after this visit
+  notes      String?
+  latitude   Float?
+  longitude  Float?
+  createdAt  DateTime @default(now())
+
+  @@index([agentId, createdAt])
+  @@index([customerId])
+}
+
+model Appointment {
+  id          Int       @id @default(autoincrement())
+  customerId  Int
+  customer    Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  agentId     Int
+  agent       User      @relation("AgentAppointments", fields: [agentId], references: [id])
+  scheduledAt DateTime
+  purpose     String    @default("FOLLOW_UP") // FOLLOW_UP | PAYMENT | DEMO | OTHER
+  notes       String?
+  status      String    @default("SCHEDULED") // SCHEDULED | DONE | MISSED | CANCELLED
+  remindedAt  DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([agentId, scheduledAt])
+  @@index([status, scheduledAt])
+}
+
+// Simple key/value settings editable by admins (e.g. backup schedule)
+model Setting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+// Internet packages GVA sells (managed by admin/finance)
+model Package {
+  id           Int       @id @default(autoincrement())
+  name         String
+  speedMbps    Int
+  monthlyPrice Int // RWF
+  installFee   Int       @default(0) // RWF
+  description  String?
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  payments     Payment[]
+}
+
+// A payment recorded by an agent. Flow: PENDING_SUPERVISOR → PENDING_FINANCE → CONFIRMED (or REJECTED)
+model Payment {
+  id            Int           @id @default(autoincrement())
+  customerId    Int
+  customer      Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  agentId       Int
+  agent         User          @relation("AgentPayments", fields: [agentId], references: [id])
+  packageId     Int
+  package       Package       @relation(fields: [packageId], references: [id])
+  amount        Int // RWF
+  method        String // MOMO_MTN | AIRTEL_MONEY | BANK | CASH
+  transactionId String        @unique
+  paidAt        DateTime
+  note          String?
+  status        String        @default("PENDING_SUPERVISOR")
+  supervisorId  Int?
+  supervisor    User?         @relation("SupervisorConfirmations", fields: [supervisorId], references: [id])
+  supervisorAt  DateTime?
+  financeById   Int?
+  financeBy     User?         @relation("FinanceConfirmations", fields: [financeById], references: [id])
+  financeAt     DateTime?
+  rejectReason  String?
+  rejectedById  Int?
+  rejectedAt    DateTime?
+  createdAt     DateTime      @default(now())
+  installation  Installation?
+
+  @@index([status])
+  @@index([agentId])
+  @@index([paidAt])
+}
+
+// Created when finance confirms a payment. PENDING → SCHEDULED → IN_PROGRESS → COMPLETED (or ON_HOLD)
+model Installation {
+  id           Int             @id @default(autoincrement())
+  customerId   Int
+  customer     Customer        @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  paymentId    Int             @unique
+  payment      Payment         @relation(fields: [paymentId], references: [id])
+  status       String          @default("PENDING")
+  technicianId Int?
+  technician   User?           @relation("TechnicianJobs", fields: [technicianId], references: [id])
+  assignedById Int?
+  scheduledAt  DateTime?
+  opsNotes     String?
+  startedAt    DateTime?
+  completedAt  DateTime?
+  routerSerial String?
+  techNotes    String?
+  signedBy     String? // name of the person at the house who confirmed
+  holdReason   String?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  photos       InstallPhoto[]
+  movements    StockMovement[]
+
+  @@index([status])
+  @@index([technicianId, status])
+}
+
+model InstallPhoto {
+  id             Int          @id @default(autoincrement())
+  installationId Int
+  installation   Installation @relation(fields: [installationId], references: [id], onDelete: Cascade)
+  fileName       String
+  mimeType       String
+  size           Int
+  uploadedById   Int
+  createdAt      DateTime     @default(now())
+}
+
+model InventoryItem {
+  id            Int             @id @default(autoincrement())
+  sku           String          @unique
+  name          String
+  unit          String          @default("pcs") // pcs | m
+  quantity      Int             @default(0)
+  minQuantity   Int             @default(0)
+  kitQuantity   Int             @default(0) // used per standard installation kit
+  isActive      Boolean         @default(true)
+  createdAt     DateTime        @default(now())
+  movements     StockMovement[]
+}
+
+model StockMovement {
+  id             Int           @id @default(autoincrement())
+  itemId         Int
+  item           InventoryItem @relation(fields: [itemId], references: [id])
+  change         Int // + received/returned, - issued
+  reason         String // RECEIVED | ISSUED | RETURNED | ADJUSTED
+  balance        Int // quantity after this movement
+  installationId Int?
+  installation   Installation? @relation(fields: [installationId], references: [id])
+  technicianId   Int?
+  userId         Int
+  user           User          @relation("StockMovers", fields: [userId], references: [id])
+  note           String?
+  createdAt      DateTime      @default(now())
+
+  @@index([itemId, createdAt])
+}
+
+// Monthly goals per agent. A team's target is the sum of its agents' targets.
+model Target {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation("UserTargets", fields: [userId], references: [id], onDelete: Cascade)
+  period    String // "YYYY-MM"
+  leads     Int      @default(0) // new customers recorded
+  visits    Int      @default(0) // visits logged (first contact + return visits)
+  sales     Int      @default(0) // paid customers (counted from Phase 4)
+  setById   Int?
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, period])
+}
+
+model Notification {
+  id        Int       @id @default(autoincrement())
+  userId    Int
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String // REMINDER | INFO
+  title     String
+  body      String?
+  link      String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model LoginCode {
+  id        String    @id @default(cuid())
+  userId    Int
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash  String
+  attempts  Int       @default(0)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+}
+
+model RolePermission {
+  role       String
+  permission String
+
+  @@id([role, permission])
+}
+
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  userId    Int?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String
+  details   String?
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
