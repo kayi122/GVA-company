@@ -20,11 +20,9 @@ ENV NODE_ENV=production \
     UPLOAD_DIR=/data/uploads \
     BACKUP_DIR=/data/backups
 COPY --from=build /app /app
-RUN mkdir -p /data && chown -R node:node /data /app/node_modules/.prisma
-USER node
+RUN mkdir -p /data && chown -R node:node /data /app/node_modules/.prisma && chmod +x /app/docker-entrypoint.sh
 VOLUME ["/data"]
 EXPOSE 4000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s CMD node -e "fetch('http://127.0.0.1:4000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-ENTRYPOINT ["/usr/bin/tini", "--"]
-# 1) create/upgrade tables  2) first-run admin + permissions  3) start
-CMD ["sh", "-c", "npx prisma db push --skip-generate --schema server/prisma/schema.prisma && node server/prisma/init-prod.js && node server/src/index.js"]
+# Starts as root only to fix the data disk's ownership, then runs the app as "node" (see docker-entrypoint.sh)
+ENTRYPOINT ["/usr/bin/tini", "--", "/app/docker-entrypoint.sh"]

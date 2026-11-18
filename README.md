@@ -72,4 +72,4 @@ client/   React + Vite + Tailwind · src/pages/* · src/components/*
 
 ## Put it online
 
-See **[DEPLOY.md](DEPLOY.md)**: Docker (recommended) or Node + PM2 + Nginx, HTTPS, email, backups and restore.
+**Easiest: [RENDER.md](RENDER.md)** (hosted from this GitHub repo). Own server: **[DEPLOY.md](DEPLOY.md)**: Docker or Node + PM2 + Nginx, HTTPS, email, backups and restore.
