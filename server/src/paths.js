@@ -1,15 +1,10 @@
-// Where the app keeps its files. Override with env vars in production (see DEPLOY.md).
+// Where the app keeps files when running on its own server / locally.
+// On Vercel, photos and backups go to Vercel Blob instead (see storage.js).
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const SERVER_DIR = fileURLToPath(new URL('..', import.meta.url));
+// Kept outside server/ so the development auto-restart doesn't fire on every upload
+const DATA_DIR = fileURLToPath(new URL('../../.data', import.meta.url));
 
-export const UPLOAD_DIR = path.resolve(process.env.UPLOAD_DIR || path.join(SERVER_DIR, 'uploads'));
-export const BACKUP_DIR = path.resolve(process.env.BACKUP_DIR || path.join(SERVER_DIR, 'backups'));
-
-/** Absolute path of the SQLite file from DATABASE_URL (relative paths are relative to prisma/schema.prisma, like Prisma). */
-export function databaseFile() {
-  const url = process.env.DATABASE_URL || 'file:./dev.db';
-  const p = url.replace(/^file:/, '').split('?')[0];
-  return path.isAbsolute(p) ? p : path.resolve(SERVER_DIR, 'prisma', p);
-}
+export const UPLOAD_DIR = path.resolve(process.env.UPLOAD_DIR || path.join(DATA_DIR, 'uploads'));
+export const BACKUP_DIR = path.resolve(process.env.BACKUP_DIR || path.join(DATA_DIR, 'backups'));

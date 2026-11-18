@@ -2,17 +2,14 @@ import { Router } from 'express';
 import { z } from 'zod';
 import multer from 'multer';
 import crypto from 'node:crypto';
-import { mkdirSync, existsSync, unlinkSync } from 'node:fs';
-import path from 'node:path';
 import { prisma } from '../db.js';
 import { requireAuth, requirePerm, audit, HttpError } from '../auth.js';
 import { notify, usersWithPerm } from '../notify.js';
-import { UPLOAD_DIR } from '../paths.js';
+import { saveFile, readFile, deleteFile } from '../storage.js';
 
 const router = Router();
 router.use(requireAuth);
 
-export const UPLOAD_ROOT = path.join(UPLOAD_DIR, 'installations');
 const MIN_PHOTOS = 2;
 
 function parse(schema, body) {
@@ -150,18 +147,14 @@ router.post('/:id/start', async (req, res) => {
   res.json({ ok: true });
 });
 
+// Photos are kept in memory, then saved to storage (Vercel Blob, encrypted — or local disk).
+// Vercel limits a request to 4.5 MB, so the app uploads one compressed photo per request.
 const upload = multer({
-  storage: multer.diskStorage({
-    destination: (req, file, cb) => {
-      const dir = path.join(UPLOAD_ROOT, String(Number(req.params.id)));
-      mkdirSync(dir, { recursive: true });
-      cb(null, dir);
-    },
-    filename: (req, file, cb) => cb(null, `${Date.now()}-${crypto.randomBytes(6).toString('hex')}${{ 'image/png': '.png', 'image/webp': '.webp' }[file.mimetype] ?? '.jpg'}`),
-  }),
+  storage: multer.memoryStorage(),
   limits: { fileSize: 8 * 1024 * 1024, files: 10 },
   fileFilter: (req, file, cb) => cb(null, ['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype)),
 });
+const EXT = { 'image/png': '.png', 'image/webp': '.webp' };
 
 router.post('/:id/photos', async (req, res, next) => {
   const inst = await loadInstallation(req);
@@ -171,10 +164,13 @@ router.post('/:id/photos', async (req, res, next) => {
     try {
       if (err) throw new HttpError(400, err.code === 'LIMIT_FILE_SIZE' ? 'Each photo must be under 8 MB.' : 'Upload failed. Try fewer photos.');
       if (!req.files?.length) throw new HttpError(400, 'Choose at least one photo (JPG, PNG or WebP).');
-      await prisma.installPhoto.createMany({
-        data: req.files.map((f) => ({ installationId: inst.id, fileName: path.basename(f.path), mimeType: f.mimetype, size: f.size, uploadedById: req.user.id })),
-      });
-      res.status(201).json({ uploaded: req.files.length });
+      const rows = [];
+      for (const f of req.files) {
+        const name = `installations/${inst.id}/${Date.now()}-${crypto.randomBytes(6).toString('hex')}${EXT[f.mimetype] ?? '.jpg'}`;
+        rows.push({ installationId: inst.id, fileName: await saveFile(name, f.buffer), mimeType: f.mimetype, size: f.size, uploadedById: req.user.id });
+      }
+      await prisma.installPhoto.createMany({ data: rows });
+      res.status(201).json({ uploaded: rows.length });
     } catch (e) {
       next(e);
     }
@@ -189,10 +185,10 @@ router.get('/:id/photos/:photoId', async (req, res) => {
   if (!allowed) throw new HttpError(404, 'Photo not found.');
   const photo = await prisma.installPhoto.findFirst({ where: { id: Number(req.params.photoId), installationId: inst.id } });
   if (!photo) throw new HttpError(404, 'Photo not found.');
-  const file = path.join(UPLOAD_ROOT, String(inst.id), photo.fileName);
-  if (!existsSync(file)) throw new HttpError(404, 'Photo file is missing.');
+  let data;
+  try { data = await readFile(photo.fileName); } catch { throw new HttpError(404, 'Photo file is missing.'); }
   res.setHeader('Cache-Control', 'private, max-age=86400');
-  res.type(photo.mimeType).sendFile(file);
+  res.type(photo.mimeType).send(data);
 });
 
 router.delete('/:id/photos/:photoId', async (req, res) => {
@@ -201,7 +197,7 @@ router.delete('/:id/photos/:photoId', async (req, res) => {
   const photo = await prisma.installPhoto.findFirst({ where: { id: Number(req.params.photoId), installationId: inst.id } });
   if (!photo || (photo.uploadedById !== req.user.id && !isOps(req))) throw new HttpError(404, 'Photo not found.');
   await prisma.installPhoto.delete({ where: { id: photo.id } });
-  try { unlinkSync(path.join(UPLOAD_ROOT, String(inst.id), photo.fileName)); } catch {}
+  await deleteFile(photo.fileName);
   res.json({ ok: true });
 });
 

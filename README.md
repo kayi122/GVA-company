@@ -28,17 +28,17 @@ Field sales → payment → finance → installation pipeline for GVA (FTTH inte
 - **Packages:** admin and finance manage packages and prices. The 4 seeded packages are **examples**.
 - **Notifications** at every step: supervisor → finance → operations → technician → agent.
 - Reports now count **sales = payments confirmed by finance** and show revenue.
-- Photos are stored in `server/uploads/` (not in git), and only people involved with that customer can view them.
+- Photos are stored encrypted in Vercel Blob (locally: `server/uploads/`, not in git), and only people involved with that customer can view them.
 
 **Phase 5 (done):** backups, production readiness and polish.
 - **Backups:** the database and all photos go into one .zip. There is a daily automatic backup (time and number kept are set under **System & backups**), plus Back up now, Download and Delete. Admins are notified if a backup fails. From the command line: `npm run backup -w server` and `npm run restore -w server -- <file.zip>` (the restore saves the current data first).
 - **Security:** changing or resetting a password, disabling an account or changing a role signs that user out on every device. Strict security headers are on, and sign-in limits count only failed attempts per account. In production the server refuses to start without a strong secret and working email, and shows a clear message if email is down.
-- **Production:** `Dockerfile` + `docker-compose.yml` with Caddy for automatic HTTPS, and `.env.production.example`. A first-run script creates only the admin (no demo data). Step-by-step guide in **[DEPLOY.md](DEPLOY.md)**.
+- **Production:** hosted on **Vercel** with Neon Postgres and Vercel Blob; a daily Vercel Cron job runs the backup. A first-run step creates only the admin (no demo data). Step-by-step guide in **[DEPLOY.md](DEPLOY.md)**.
 - **Polish:** installable on phones (Add to Home Screen, app icon, shortcuts), pages load on demand (smaller first download), an offline banner, a friendly error screen, and an automatic reload after an update.
 
 ## Run it (on your computer)
 
-Requires Node.js 20+.
+Requires Node.js 22. The local database is a built-in PostgreSQL started by the scripts (nothing to install).
 
 ```bash
 npm install
@@ -66,10 +66,10 @@ To send real emails, fill in `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` 
 ## Project layout
 
 ```
-server/   Express API · Prisma (SQLite) · prisma/schema.prisma · src/permissions.js (roles & default rights)
+server/   Express API · Prisma (PostgreSQL) · prisma/schema.prisma · src/permissions.js (roles & default rights)
 client/   React + Vite + Tailwind · src/pages/* · src/components/*
 ```
 
 ## Put it online
 
-**Easiest: [RENDER.md](RENDER.md)** (hosted from this GitHub repo). Own server: **[DEPLOY.md](DEPLOY.md)**: Docker or Node + PM2 + Nginx, HTTPS, email, backups and restore.
+Hosted on **Vercel** (Neon Postgres + Vercel Blob). Follow **[DEPLOY.md](DEPLOY.md)** step by step.

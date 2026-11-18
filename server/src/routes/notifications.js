@@ -1,11 +1,13 @@
 import { Router } from 'express';
 import { prisma } from '../db.js';
 import { requireAuth } from '../auth.js';
+import { maybeRunReminders } from '../reminders.js';
 
 const router = Router();
 router.use(requireAuth);
 
 router.get('/', async (req, res) => {
+  await maybeRunReminders(); // on Vercel this is what sends visit reminders (no background jobs there)
   const [items, unread] = await Promise.all([
     prisma.notification.findMany({ where: { userId: req.user.id }, orderBy: { createdAt: 'desc' }, take: 30 }),
     prisma.notification.count({ where: { userId: req.user.id, readAt: null } }),

@@ -106,7 +106,7 @@ router.get('/payments', async (req, res) => {
   if (agentId) where.AND.push({ agentId: Number(agentId) });
   if (q) {
     const term = String(q).trim();
-    where.AND.push({ OR: [{ transactionId: { contains: term.toUpperCase() } }, { customer: { fullName: { contains: term } } }, { customer: { phone: { contains: term.replace(/\D/g, '') || term } } }] });
+    where.AND.push({ OR: [{ transactionId: { contains: term.toUpperCase() } }, { customer: { fullName: { contains: term, mode: 'insensitive' } } }, { customer: { phone: { contains: term.replace(/\D/g, '') || term } } }] });
   }
   const payments = await prisma.payment.findMany({ where, include, orderBy: { createdAt: 'desc' }, take: 200 });
   res.json({ payments });

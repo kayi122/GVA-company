@@ -1,8 +1,0 @@
-{$DOMAIN} {
-	encode gzip
-	# photos up to 10 per upload, 8 MB each
-	request_body {
-		max_size 90MB
-	}
-	reverse_proxy app:4000
-}

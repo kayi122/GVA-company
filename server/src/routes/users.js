@@ -49,7 +49,7 @@ router.get('/', requirePerm('users.view'), async (req, res) => {
   const where = {};
   if (role && ROLES.includes(role)) where.role = role;
   if (supervisorId) where.supervisorId = Number(supervisorId);
-  if (q) where.OR = ['fullName', 'username', 'email', 'phone'].map((f) => ({ [f]: { contains: String(q) } }));
+  if (q) where.OR = ['fullName', 'username', 'email', 'phone'].map((f) => ({ [f]: { contains: String(q), mode: 'insensitive' } }));
   const users = await prisma.user.findMany({ where, include: listInclude, orderBy: [{ role: 'asc' }, { fullName: 'asc' }] });
   res.json({ users: users.map(publicUser) });
 });

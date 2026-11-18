@@ -82,13 +82,18 @@ export async function compressImage(file, max = 1600, quality = 0.8) {
   }
 }
 
+// One photo per request: hosting limits a request to 4.5 MB, and a weak connection only retries one photo.
 export async function uploadPhotos(installationId, files) {
-  const form = new FormData();
-  for (const f of files) form.append('photos', await compressImage(f));
-  const res = await fetch(`/api/installations/${installationId}/photos`, { method: 'POST', body: form, credentials: 'include' });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || 'Upload failed');
-  return data;
+  let uploaded = 0;
+  for (const f of files) {
+    const form = new FormData();
+    form.append('photos', await compressImage(f));
+    const res = await fetch(`/api/installations/${installationId}/photos`, { method: 'POST', body: form, credentials: 'include' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(`${uploaded ? `${uploaded} photo(s) saved, then: ` : ''}${data.error || (res.status === 413 ? 'Photo too large' : 'Upload failed')}`);
+    uploaded += data.uploaded ?? 1;
+  }
+  return { uploaded };
 }
 
 export const photoUrl = (installationId, photoId) => `/api/installations/${installationId}/photos/${photoId}`;

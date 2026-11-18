@@ -2,17 +2,24 @@
   "name": "gva-sales-pipeline",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
+  "engines": {
+    "node": "22.x"
+  },
   "workspaces": [
     "server",
     "client"
   ],
   "scripts": {
-    "setup": "node scripts/init-env.js && npm run db:push -w server && npm run seed -w server",
-    "dev": "concurrently -n api,web -c green,cyan \"npm run dev -w server\" \"npm run dev -w client\"",
+    "setup": "node scripts/init-env.js && node scripts/setup-db.js",
+    "db": "node scripts/dev-db.js",
+    "dev": "concurrently -n db,api,web -c gray,green,cyan \"node scripts/dev-db.js\" \"npm run dev -w server\" \"npm run dev -w client\"",
     "build": "npm run build -w client",
+    "vercel-build": "prisma generate --schema server/prisma/schema.prisma && prisma db push --skip-generate --schema server/prisma/schema.prisma && node server/prisma/init-prod.js && npm run build -w client",
     "start": "npm run start -w server"
   },
   "devDependencies": {
-    "concurrently": "^9.1.0"
+    "concurrently": "^9.1.0",
+    "embedded-postgres": "^17.11.0-beta.19"
   }
 }

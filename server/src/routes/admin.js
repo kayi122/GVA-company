@@ -35,7 +35,7 @@ router.get('/audit', requirePerm('audit.view'), async (req, res) => {
   const q = req.query.q ? String(req.query.q) : null;
   const logs = await prisma.auditLog.findMany({
     where: q
-      ? { OR: [{ action: { contains: q } }, { details: { contains: q } }, { user: { fullName: { contains: q } } }] }
+      ? { OR: [{ action: { contains: q, mode: 'insensitive' } }, { details: { contains: q, mode: 'insensitive' } }, { user: { fullName: { contains: q, mode: 'insensitive' } } }] }
       : {},
     include: { user: { select: { fullName: true, username: true, role: true } } },
     orderBy: { createdAt: 'desc' },

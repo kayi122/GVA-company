@@ -86,9 +86,9 @@ router.get('/', async (req, res) => {
     const digits = term.replace(/\D/g, '');
     where.AND.push({
       OR: [
-        { fullName: { contains: term } },
-        { sector: { contains: term } },
-        { district: { contains: term } },
+        { fullName: { contains: term, mode: 'insensitive' } },
+        { sector: { contains: term, mode: 'insensitive' } },
+        { district: { contains: term, mode: 'insensitive' } },
         ...(digits.length >= 3 ? [{ phone: { contains: digits.replace(/^250/, '0') } }] : []),
       ],
     });

@@ -9,3 +9,6 @@ backups/
 *.db-shm
 .claude/
 .env.production
+.pgdata/
+.vercel/
+.data/

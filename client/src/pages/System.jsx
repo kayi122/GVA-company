@@ -22,16 +22,18 @@ export default function System() {
   if (!info) return <div className="flex justify-center py-20 text-olive-600"><Spinner className="h-7 w-7" /></div>;
   const lastAuto = info.backups.find((b) => b.kind === 'auto');
   const dirty = settings && JSON.stringify(settings) !== JSON.stringify(info.settings);
+  const vercel = info.platform === 'vercel';
+  const when = vercel ? 'Daily at 02:00 (Kigali)' : `Daily at ${String(info.settings.hour).padStart(2, '0')}:00`;
 
   return (
     <div className="animate-fade-up">
       <PageHeader title="System" subtitle="Backups, email and server health." />
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Tile icon={Server} label="Version" value={info.version} sub={`${info.environment} · Node ${info.node}`} />
+        <Tile icon={Server} label="Version" value={info.version} sub={`${vercel ? 'Vercel' : info.environment} · files: ${info.fileStorage}`} />
         <Tile icon={Clock} label="Running since" value={timeAgo(info.startedAt)} sub={new Date(info.startedAt).toLocaleString()} />
         <Tile icon={Mail} label="Email" value={info.smtpConfigured ? 'Sending' : 'Test mode'} sub={info.smtpConfigured ? 'Sign-in codes go by email' : 'Codes show on screen — not for production'} warn={!info.smtpConfigured} />
-        <Tile icon={DatabaseBackup} label="Last automatic backup" value={lastAuto ? timeAgo(lastAuto.createdAt) : 'None yet'} sub={info.settings.enabled ? `Daily at ${String(info.settings.hour).padStart(2, '0')}:00` : 'Automatic backups are off'} warn={!info.settings.enabled || !lastAuto} />
+        <Tile icon={DatabaseBackup} label="Last automatic backup" value={lastAuto ? timeAgo(lastAuto.createdAt) : 'None yet'} sub={info.settings.enabled ? when : 'Automatic backups are off'} warn={!info.settings.enabled || !lastAuto} />
       </div>
 
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
@@ -39,7 +41,7 @@ export default function System() {
           <div className="flex flex-wrap items-center justify-between gap-3 p-6">
             <div>
               <h2 className="font-bold">Backups</h2>
-              <p className="text-sm text-slate-500">Each backup holds the whole database and all installation photos. Download one regularly and keep it somewhere else.</p>
+              <p className="text-sm text-slate-500">{vercel ? 'Each backup holds the whole database (photos stay safely in Vercel Blob).' : 'Each backup holds the whole database and all installation photos.'} Download one regularly and keep it somewhere else.</p>
             </div>
             <Button icon={DatabaseBackup} loading={busy === 'backup'} onClick={() => run('backup', () => api('/system/backups', { method: 'POST' }), (r) => `Backup created (${mb(r.backup.size)})`)}>Back up now</Button>
           </div>
@@ -71,11 +73,11 @@ export default function System() {
               <input type="checkbox" checked={settings.enabled} onChange={(e) => setSettings({ ...settings, enabled: e.target.checked })} className="h-5 w-5 accent-[#86a022]" />
             </label>
             <div className="mt-4 grid grid-cols-2 gap-3">
-              <label className="text-sm"><span className="mb-1 block text-slate-500">At</span>
+              {vercel ? <div className="text-sm"><span className="mb-1 block text-slate-500">At</span><div className="flex h-10 items-center font-semibold">02:00 Kigali</div></div> : <label className="text-sm"><span className="mb-1 block text-slate-500">At</span>
                 <Select value={settings.hour} onChange={(e) => setSettings({ ...settings, hour: Number(e.target.value) })} className="h-10" disabled={!settings.enabled}>
                   {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>)}
                 </Select>
-              </label>
+              </label>}
               <label className="text-sm"><span className="mb-1 block text-slate-500">Keep the last</span>
                 <Select value={settings.keep} onChange={(e) => setSettings({ ...settings, keep: Number(e.target.value) })} className="h-10">
                   {[3, 7, 14, 30, 60].map((n) => <option key={n} value={n}>{n} days</option>)}
@@ -108,12 +110,18 @@ export default function System() {
 
       <Card className="mt-6 p-6">
         <h2 className="flex items-center gap-2 font-bold"><Terminal className="h-4 w-4" /> How to restore a backup</h2>
+        {vercel && (
+          <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
+            <b>Quickest:</b> Neon (the database) can rewind to any moment of the last days: Vercel → Storage → your database → Open in Neon → <i>Restore</i>.
+            To load a downloaded backup instead:
+          </p>
+        )}
         <ol className="mt-3 list-decimal space-y-1.5 pl-5 text-sm text-slate-600 dark:text-slate-300">
-          <li>Stop the app on the server.</li>
-          <li>Run the restore command with the backup file (it saves the current data first, just in case):</li>
+          <li>Download the backup (button above).</li>
+          <li>{vercel ? 'On a computer with the project, put the production DATABASE_URL in server/.env, then run' : 'On the server, run'} (it saves the current data first, just in case):</li>
         </ol>
-        <pre className="mt-3 overflow-x-auto rounded-xl bg-navy-900 p-4 font-mono text-xs text-lime-brand">npm run restore -w server -- {info.backups[0]?.file ?? 'gva-backup-YYYYMMDD-HHMMSS-auto.zip'}</pre>
-        <p className="mt-3 text-sm text-slate-500">3. Start the app again. Restoring is done on the server on purpose, so nobody can overwrite live data by accident from a browser.</p>
+        <pre className="mt-3 overflow-x-auto rounded-xl bg-navy-900 p-4 font-mono text-xs text-lime-brand">npm run restore -w server -- {(info.backups[0]?.file ?? 'gva-backup-YYYYMMDD-HHMMSS-auto.zip').replace(/^(gva-backup-\d{8}-\d{6}-(?:auto|manual))(?:-[A-Za-z0-9]+)?\.zip$/, '$1.zip')} --yes</pre>
+        <p className="mt-3 text-sm text-slate-500">Restoring is done outside the browser on purpose, so nobody can overwrite live data by accident.</p>
       </Card>
     </div>
   );

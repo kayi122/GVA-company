@@ -1,70 +1,55 @@
-// Restore a backup .zip (database + photos).
-// Usage (STOP the server first):  npm run restore -w server -- path/to/gva-backup-YYYYMMDD-HHMMSS-auto.zip
-import { existsSync, mkdtempSync, copyFileSync, rmSync, renameSync, mkdirSync, cpSync } from 'node:fs';
+// Restore a backup .zip (downloaded from System & backups) into the database in server/.env (or DATABASE_URL).
+// Usage:  npm run restore -w server -- path/to/gva-backup-YYYYMMDD-HHMMSS-auto.zip --yes
+// ALL current data in that database is replaced. A safety backup of the current data is made first.
+import { existsSync, mkdtempSync, readFileSync, rmSync, renameSync, cpSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import extract from 'extract-zip';
-import { databaseFile, UPLOAD_DIR, BACKUP_DIR } from '../src/paths.js';
+import { UPLOAD_DIR } from '../src/paths.js';
+import { USE_BLOB } from '../src/storage.js';
+import { createBackup, restoreData, MODELS } from '../src/backup.js';
+import { prisma } from '../src/db.js';
 
-const zipArg = process.argv[2];
-if (!zipArg) {
-  console.error('Usage: npm run restore -w server -- <backup.zip>');
-  process.exit(1);
-}
-const zipPath = path.resolve(process.env.INIT_CWD || process.cwd(), zipArg);
-if (!existsSync(zipPath)) {
-  const inBackups = path.join(BACKUP_DIR, path.basename(zipArg));
-  if (!existsSync(inBackups)) { console.error(`Backup not found: ${zipPath}`); process.exit(1); }
-}
-const source = existsSync(zipPath) ? zipPath : path.join(BACKUP_DIR, path.basename(zipArg));
+const args = process.argv.slice(2);
+const zipArg = args.find((a) => !a.startsWith('--'));
+const confirmed = args.includes('--yes');
+const target = (process.env.DATABASE_URL || '').replace(/\/\/[^@]*@/, '//***@');
 
-// Refuse to run while the API is up (the database file would be in use)
-const port = Number(process.env.API_PORT || 4000);
-let serverUp = false;
 try {
-  await fetch(`http://127.0.0.1:${port}/api/health`, { signal: AbortSignal.timeout(1500) });
-  serverUp = true;
-} catch { /* not running — good */ }
+  if (!zipArg) throw new Error('Usage: npm run restore -w server -- <backup.zip> --yes');
+  const source = path.resolve(process.env.INIT_CWD || process.cwd(), zipArg);
+  if (!existsSync(source)) throw new Error(`Backup not found: ${source}`);
+  if (!confirmed) {
+    console.log(`This will REPLACE ALL DATA in:\n  ${target}\nwith the contents of:\n  ${source}\n\nIf that is right, run the same command again with --yes at the end.`);
+  } else {
+    const tmp = mkdtempSync(path.join(os.tmpdir(), 'gva-restore-'));
+    try {
+      await extract(source, { dir: tmp });
+      const dataFile = path.join(tmp, 'data.json');
+      if (!existsSync(dataFile)) throw new Error('This file is not a GVA backup (data.json missing).');
+      const data = JSON.parse(readFileSync(dataFile, 'utf8'));
 
-if (serverUp) {
-  console.error(`The server is still running on port ${port}. Stop it first, then run the restore again.`);
-  process.exitCode = 1;
-} else {
-  await restore();
-}
+      const safety = await createBackup('manual');
+      console.log(`Safety backup of the current data: ${safety.file}`);
 
-async function restore() {
-const tmp = mkdtempSync(path.join(os.tmpdir(), 'gva-restore-'));
-try {
-  await extract(source, { dir: tmp });
-  const db = path.join(tmp, 'database.db');
-  if (!existsSync(db)) throw new Error('This file is not a GVA backup (database.db missing).');
+      await restoreData(data);
+      console.log(`Database restored (${MODELS.map((m) => `${(data[m] ?? []).length} ${m}`).filter((s) => !s.startsWith('0 ')).join(', ')}).`);
 
-  const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
-  const live = databaseFile();
-  mkdirSync(BACKUP_DIR, { recursive: true });
-
-  // Safety copy of what is there now
-  if (existsSync(live)) {
-    const safety = path.join(BACKUP_DIR, `before-restore-${stamp}.db`);
-    copyFileSync(live, safety);
-    console.log(`Current database saved to ${safety}`);
+      const uploads = path.join(tmp, 'uploads');
+      if (existsSync(uploads) && !USE_BLOB) {
+        const stamp = Date.now();
+        if (existsSync(UPLOAD_DIR)) renameSync(UPLOAD_DIR, `${UPLOAD_DIR}-before-restore-${stamp}`);
+        cpSync(uploads, UPLOAD_DIR, { recursive: true });
+        console.log(`Photos restored to ${UPLOAD_DIR}`);
+      }
+      console.log('\nDone.');
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
   }
-  for (const ext of ['-wal', '-shm', '-journal']) rmSync(live + ext, { force: true });
-  copyFileSync(db, live);
-  console.log(`Database restored to ${live}`);
-
-  const uploads = path.join(tmp, 'uploads');
-  if (existsSync(uploads)) {
-    if (existsSync(UPLOAD_DIR)) renameSync(UPLOAD_DIR, `${UPLOAD_DIR}-before-restore-${stamp}`);
-    cpSync(uploads, UPLOAD_DIR, { recursive: true });
-    console.log(`Photos restored to ${UPLOAD_DIR}`);
-  }
-  console.log('\nDone. Start the server again.');
 } catch (e) {
   console.error('Restore failed:', e.message);
   process.exitCode = 1;
 } finally {
-  rmSync(tmp, { recursive: true, force: true });
-}
+  await prisma.$disconnect();
 }

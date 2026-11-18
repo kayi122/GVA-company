@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node --watch --env-file=.env src/index.js",
+    "dev": "node --watch-path=src --env-file=.env src/index.js",
     "start": "node --env-file=.env src/index.js",
     "db:push": "prisma db push",
     "seed": "node --env-file=.env prisma/seed.js",
@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@prisma/client": "^6.1.0",
+    "@vercel/blob": "^2.9.0",
     "archiver": "^7.0.1",
     "bcryptjs": "^2.4.3",
     "cookie-parser": "^1.4.7",
